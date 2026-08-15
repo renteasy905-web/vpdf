@@ -17,13 +17,13 @@ os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 ALLOWED_EXTENSIONS = {'pdf'}
 
-# HTML Frontend (embedded) - Bindery Workbench Design
+# HTML Frontend (embedded) - VIP PDF Splitter Design with Loader
 HTML_TEMPLATE = '''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>The Bindery — PDF Splitter</title>
+    <title>VIP PDF Splitter</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -47,6 +47,8 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             --sage-soft: #d7e4d4;
             --rust: #9a3324;
             --rust-soft: #f1d3cb;
+            --gold: #c9a84c;
+            --gold-soft: #f5edd4;
         }
 
         body {
@@ -98,7 +100,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             font-family: 'Fraunces', serif;
             font-size: 34px;
             font-weight: 700;
-            color: var(--paper);
+            color: var(--gold);
             letter-spacing: 0.5px;
         }
 
@@ -108,6 +110,11 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             font-weight: 600;
             color: var(--paper);
             letter-spacing: 0.2px;
+        }
+
+        .header h1 .vip {
+            color: var(--gold);
+            font-weight: 700;
         }
 
         .header-subtitle {
@@ -139,9 +146,9 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         }
 
         .status-badge.active {
-            background: var(--sage-soft);
-            color: #2c4530;
-            border-color: transparent;
+            background: var(--gold-soft);
+            color: #7a6520;
+            border-color: var(--gold);
         }
 
         /* ---------- shared card / ledger sheet ---------- */
@@ -330,6 +337,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             gap: 8px;
             text-decoration: none;
             font-family: 'Inter', sans-serif;
+            position: relative;
         }
 
         .btn:active {
@@ -381,9 +389,147 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             background: var(--rust-soft);
         }
 
+        .btn-gold {
+            background: var(--gold);
+            color: var(--ink);
+        }
+
+        .btn-gold:hover {
+            background: #b8953a;
+            box-shadow: 0 4px 12px rgba(201, 168, 76, 0.35);
+        }
+
+        .btn-gold:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
         .btn-sm {
             padding: 6px 12px;
             font-size: 12px;
+        }
+
+        /* Button Loader */
+        .btn-loader {
+            display: none;
+            width: 18px;
+            height: 18px;
+            border: 2.5px solid rgba(30,42,63,0.15);
+            border-top-color: var(--ink);
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+            flex-shrink: 0;
+        }
+
+        .btn.loading .btn-loader {
+            display: inline-block;
+        }
+
+        .btn.loading .btn-text {
+            display: none;
+        }
+
+        .btn.loading .btn-icon {
+            display: none;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Full Page Overlay Loader */
+        .overlay-loader {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(30,42,63,0.7);
+            backdrop-filter: blur(4px);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .overlay-loader.show {
+            display: flex;
+        }
+
+        .overlay-loader .loader-box {
+            background: var(--paper-card);
+            padding: 48px 56px;
+            border-radius: 4px;
+            border: 1px solid var(--rule);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            text-align: center;
+            max-width: 420px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .overlay-loader .loader-box::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, var(--gold), var(--cut), var(--gold));
+            background-size: 200% 100%;
+            animation: shimmer 1.5s ease-in-out infinite;
+        }
+
+        @keyframes shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+
+        .overlay-loader .loader-spinner {
+            width: 52px;
+            height: 52px;
+            border: 4px solid var(--rule);
+            border-top-color: var(--gold);
+            border-radius: 50%;
+            animation: spin 0.9s linear infinite;
+            margin: 0 auto 16px;
+        }
+
+        .overlay-loader h2 {
+            font-family: 'Fraunces', serif;
+            font-size: 22px;
+            font-weight: 600;
+            color: var(--ink);
+            margin-bottom: 6px;
+        }
+
+        .overlay-loader p {
+            color: var(--ink-soft);
+            font-size: 14px;
+        }
+
+        .overlay-loader .loader-progress {
+            margin-top: 20px;
+            width: 100%;
+            height: 3px;
+            background: var(--rule);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .overlay-loader .loader-progress .fill {
+            height: 100%;
+            background: var(--gold);
+            border-radius: 2px;
+            transition: width 0.4s ease;
+            width: 0%;
+        }
+
+        .overlay-loader .loader-status {
+            margin-top: 10px;
+            font-size: 12px;
+            color: var(--ink-soft);
+            font-family: 'IBM Plex Mono', monospace;
         }
 
         /* ---------- ledger table ---------- */
@@ -550,10 +696,6 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             flex-shrink: 0;
         }
 
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
         .progress-wrapper {
             margin-top: 18px;
             display: none;
@@ -581,7 +723,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
 
         .progress-fill {
             height: 100%;
-            background: var(--cut);
+            background: var(--gold);
             transition: width 0.4s ease;
             width: 0%;
             position: relative;
@@ -605,7 +747,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             border-radius: 2px;
             display: none;
             border: 1px solid var(--rule);
-            border-top: 3px solid var(--sage);
+            border-top: 3px solid var(--gold);
         }
 
         .export-section.show {
@@ -648,7 +790,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             padding: 10px 14px;
             border-radius: 2px;
             border: 1px solid var(--rule);
-            border-left: 3px solid var(--brass);
+            border-left: 3px solid var(--gold);
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -737,6 +879,11 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             .export-grid {
                 grid-template-columns: 1fr;
             }
+
+            .overlay-loader .loader-box {
+                padding: 32px 24px;
+                margin: 16px;
+            }
         }
 
         @media (min-width: 769px) and (max-width: 1024px) {
@@ -760,18 +907,31 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         }
 
         ::-webkit-scrollbar-thumb:hover {
-            background: var(--brass);
+            background: var(--gold);
         }
     </style>
 </head>
 <body>
+    <!-- Overlay Loader -->
+    <div class="overlay-loader" id="overlayLoader">
+        <div class="loader-box">
+            <div class="loader-spinner"></div>
+            <h2 id="loaderTitle">Processing Your PDF</h2>
+            <p id="loaderDesc">Please wait while we split your document...</p>
+            <div class="loader-progress">
+                <div class="fill" id="loaderProgressFill"></div>
+            </div>
+            <div class="loader-status" id="loaderStatus">0%</div>
+        </div>
+    </div>
+
     <div class="app-container">
         <header class="header">
             <div class="header-left">
                 <span class="header-mark">✂</span>
                 <div>
-                    <h1>The VPDF</h1>
-                    <span class="header-subtitle">Cut any PDF along your own page Number's</span>
+                    <h1><span class="vip">VIP</span> PDF Splitter</h1>
+                    <span class="header-subtitle">Cut any PDF along your own page numbers</span>
                 </div>
             </div>
             <div class="header-right">
@@ -785,7 +945,8 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
                 <div class="card-header">
                     <div class="card-title">
                         <span class="eyebrow">01</span>
-                        Select Your Pdf                        <span class="badge">Required</span>
+                        Select Your PDF
+                        <span class="badge">Required</span>
                     </div>
                     <span style="font-size:12px; color:var(--ink-soft); font-family:'IBM Plex Mono',monospace;">.pdf only</span>
                 </div>
@@ -812,18 +973,20 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
                         <span class="badge" id="rangeCount">0 ranges</span>
                     </div>
                     <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                        <button class="btn btn-secondary btn-sm" id="exampleBtn">Use Example Marks</button>
+                        <button class="btn btn-gold" id="processBtn" disabled>
+                            <span class="btn-icon">✂</span>
+                            <span class="btn-text">Get New PDFs</span>
+                            <span class="btn-loader"></span>
+                        </button>
                         <button class="btn btn-danger btn-sm" id="clearAllBtn">Clear Table</button>
                     </div>
                 </div>
 
                 <div class="toolbar">
                     <button class="btn btn-primary" id="addRangeBtn">Add New Range</button>
-                    <button class="btn btn-success" id="processBtn" disabled>
-                        ✂ Get New Pdf's
-                    </button>
+                    <button class="btn btn-secondary btn-sm" id="exampleBtn">Use Example Marks</button>
                     <span style="font-size:12px; color:#a9a08a; align-self:center; margin-left:auto; font-family:'IBM Plex Mono',monospace;">
-                        ⌘ 
+                        ⌘ + Enter
                     </span>
                 </div>
 
@@ -831,7 +994,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
                     <table>
                         <thead>
                             <tr>
-                                <th style="width:25%;">Pdf  Name</th>
+                                <th style="width:25%;">PDF Name</th>
                                 <th style="width:55%;">Page Range(s)</th>
                                 <th style="width:20%; text-align:center;">Discard</th>
                             </tr>
@@ -861,13 +1024,13 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
 
                 <div class="export-section" id="exportSection">
                     <div class="export-header">
-                        <h3>✓ Bound and Ready</h3>
-                        <span>your booklets are stacked below</span>
+                        <h3>✓ Ready for Download</h3>
+                        <span>your files are stacked below</span>
                     </div>
                     <div class="export-grid" id="exportList">
                     </div>
                     <div class="export-actions">
-                        <button class="btn btn-primary" id="downloadAllBtn">Download Stack as ZIP</button>
+                        <button class="btn btn-gold" id="downloadAllBtn">Download Stack as ZIP</button>
                         <button class="btn btn-secondary" id="resetBtn">Clear the Bench</button>
                     </div>
                 </div>
@@ -875,7 +1038,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         </div>
 
         <div class="footer">
-            THE BINDERY — nothing you feed the press is kept on the shelf
+            VIP PDF Splitter — nothing you feed the press is kept on the shelf
         </div>
     </div>
 
@@ -912,7 +1075,12 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             exportSection: document.getElementById('exportSection'),
             exportList: document.getElementById('exportList'),
             systemStatus: document.getElementById('systemStatus'),
-            pageCount: document.getElementById('pageCount')
+            pageCount: document.getElementById('pageCount'),
+            overlayLoader: document.getElementById('overlayLoader'),
+            loaderTitle: document.getElementById('loaderTitle'),
+            loaderDesc: document.getElementById('loaderDesc'),
+            loaderProgressFill: document.getElementById('loaderProgressFill'),
+            loaderStatus: document.getElementById('loaderStatus')
         };
 
         function formatFileSize(bytes) {
@@ -930,7 +1098,8 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         function updateUI() {
             const count = state.ranges.length;
             elements.rangeCount.textContent = count + ' range' + (count !== 1 ? 's' : '');
-            elements.processBtn.disabled = count === 0 || !state.uploadedFile || state.isProcessing;
+            const isDisabled = count === 0 || !state.uploadedFile || state.isProcessing;
+            elements.processBtn.disabled = isDisabled;
             elements.pageCount.textContent = '📄 ' + state.totalPages + ' pages';
         }
 
@@ -967,6 +1136,24 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
 
         function hideExport() {
             elements.exportSection.classList.remove('show');
+        }
+
+        // Overlay Loader Controls
+        function showOverlayLoader(title = 'Processing Your PDF', desc = 'Please wait while we split your document...') {
+            elements.overlayLoader.classList.add('show');
+            elements.loaderTitle.textContent = title;
+            elements.loaderDesc.textContent = desc;
+            elements.loaderProgressFill.style.width = '0%';
+            elements.loaderStatus.textContent = '0%';
+        }
+
+        function updateOverlayLoader(percent, status = '') {
+            elements.loaderProgressFill.style.width = percent + '%';
+            elements.loaderStatus.textContent = (status || percent + '%');
+        }
+
+        function hideOverlayLoader() {
+            elements.overlayLoader.classList.remove('show');
         }
 
         function addRangeRow(name = '', rangeStr = '') {
@@ -1071,7 +1258,10 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             updateUI();
             hideExport();
             hideStatus();
-            showProgress(0, 'Preparing...');
+            
+            // Show overlay loader
+            showOverlayLoader('Preparing Your Document', 'Validating page ranges...');
+            updateOverlayLoader(5);
             
             try {
                 const validatedRanges = [];
@@ -1080,7 +1270,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
                         showStatus('Please provide a name for all ranges.', 'error');
                         state.isProcessing = false;
                         updateUI();
-                        hideProgress();
+                        hideOverlayLoader();
                         return;
                     }
                     
@@ -1089,7 +1279,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
                         showStatus('Invalid range format for "' + range.name + '". Use e.g., "1-5,10-15"', 'error');
                         state.isProcessing = false;
                         updateUI();
-                        hideProgress();
+                        hideOverlayLoader();
                         return;
                     }
                     
@@ -1099,23 +1289,30 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
                     });
                 }
                 
+                updateOverlayLoader(15, 'Validated ' + validatedRanges.length + ' ranges');
+                
                 const formData = new FormData();
                 formData.append('pdf', state.uploadedFile);
                 formData.append('ranges', JSON.stringify(validatedRanges));
                 
-                showProgress(30, 'Uploading to server...');
+                updateOverlayLoader(30, 'Uploading to server...');
+                elements.loaderDesc.textContent = 'Sending your PDF to the press...';
                 
                 const response = await fetch('/process-pdf', {
                     method: 'POST',
                     body: formData
                 });
                 
-                showProgress(70, 'Processing PDF...');
+                updateOverlayLoader(60, 'Processing PDF...');
+                elements.loaderDesc.textContent = 'Cutting pages according to your marks...';
                 
                 if (!response.ok) {
                     const error = await response.text();
                     throw new Error(error || 'Failed to process PDF');
                 }
+                
+                updateOverlayLoader(85, 'Preparing download...');
+                elements.loaderDesc.textContent = 'Stacking your new PDFs...';
                 
                 const blob = await response.blob();
                 const url = window.URL.createObjectURL(blob);
@@ -1127,6 +1324,13 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
                 document.body.removeChild(link);
                 window.URL.revokeObjectURL(url);
                 
+                updateOverlayLoader(100, 'Complete!');
+                elements.loaderDesc.textContent = 'Your PDFs are ready!';
+                
+                // Show success after a brief delay
+                await new Promise(resolve => setTimeout(resolve, 600));
+                
+                hideOverlayLoader();
                 showProgress(100, 'Complete!');
                 showStatus('✅ PDF split successfully! Download started.', 'success');
                 
@@ -1134,6 +1338,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
                 showExport(fileNames);
                 
             } catch (error) {
+                hideOverlayLoader();
                 showStatus('❌ Error: ' + error.message, 'error');
                 console.error(error);
             } finally {
@@ -1160,6 +1365,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             hideExport();
             hideStatus();
             hideProgress();
+            hideOverlayLoader();
             updateUI();
             addRangeRow();
         }
