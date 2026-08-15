@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_file, render_template_string, send_from_directory
+from flask import Flask, request, jsonify, send_file, render_template_string
 from flask_cors import CORS
 from pypdf import PdfReader, PdfWriter
 import os
@@ -6,7 +6,6 @@ import json
 import tempfile
 import zipfile
 from io import BytesIO
-import re
 
 app = Flask(__name__)
 CORS(app)
@@ -18,14 +17,16 @@ os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 ALLOWED_EXTENSIONS = {'pdf'}
 
-# HTML Frontend (embedded)
-HTML_TEMPLATE = '''
-<!DOCTYPE html>
+# HTML Frontend (embedded) - Bindery Workbench Design
+HTML_TEMPLATE = '''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PDF Splitter Tool</title>
+    <title>The Bindery — PDF Splitter</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
         * {
             margin: 0;
@@ -33,630 +34,887 @@ HTML_TEMPLATE = '''
             box-sizing: border-box;
         }
 
+        :root {
+            --paper: #f2ecdd;
+            --paper-card: #fbf8f0;
+            --ink: #1e2a3f;
+            --ink-soft: #4d5a70;
+            --rule: #d8cfb6;
+            --cut: #b5432a;
+            --cut-soft: #e7b6a4;
+            --brass: #a3813f;
+            --sage: #4c6b53;
+            --sage-soft: #d7e4d4;
+            --rust: #9a3324;
+            --rust-soft: #f1d3cb;
+        }
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background:
+                repeating-linear-gradient(0deg, rgba(30,42,63,0.025) 0px, rgba(30,42,63,0.025) 1px, transparent 1px, transparent 26px),
+                var(--paper);
             min-height: 100vh;
-            padding: 20px;
+            padding: 32px 24px 64px;
+            color: var(--ink);
         }
 
-        .container {
-            max-width: 1200px;
+        .app-container {
+            max-width: 1180px;
             margin: 0 auto;
-            background: white;
-            border-radius: 16px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            overflow: hidden;
         }
 
+        /* ---------- HEADER: title plate ---------- */
         .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 30px 40px;
+            background: var(--ink);
+            border-radius: 4px;
+            padding: 28px 36px;
+            margin-bottom: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 16px;
+            position: relative;
+            box-shadow: 0 10px 24px rgba(30,42,63,0.18);
+        }
+
+        .header::before {
+            content: '';
+            position: absolute;
+            inset: 6px;
+            border: 1px solid rgba(242,236,221,0.18);
+            border-radius: 2px;
+            pointer-events: none;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: baseline;
+            gap: 14px;
+        }
+
+        .header-mark {
+            font-family: 'Fraunces', serif;
+            font-size: 34px;
+            font-weight: 700;
+            color: var(--paper);
+            letter-spacing: 0.5px;
         }
 
         .header h1 {
-            font-size: 32px;
-            font-weight: 700;
-            margin-bottom: 8px;
+            font-family: 'Fraunces', serif;
+            font-size: 26px;
+            font-weight: 600;
+            color: var(--paper);
+            letter-spacing: 0.2px;
         }
 
-        .header p {
-            opacity: 0.9;
-            font-size: 16px;
+        .header-subtitle {
+            display: block;
+            color: #b7c0d1;
+            font-size: 12.5px;
+            font-weight: 400;
+            letter-spacing: 0.6px;
+            text-transform: uppercase;
+            margin-top: 4px;
         }
 
-        .content {
-            padding: 40px;
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
 
-        /* File Upload Section */
-        .upload-section {
-            background: #f8f9fa;
-            border: 2px dashed #dee2e6;
-            border-radius: 12px;
-            padding: 40px;
+        .status-badge {
+            padding: 7px 14px;
+            border-radius: 2px;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.4px;
+            background: rgba(242,236,221,0.1);
+            color: #cdd4e0;
+            border: 1px solid rgba(242,236,221,0.22);
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        .status-badge.active {
+            background: var(--sage-soft);
+            color: #2c4530;
+            border-color: transparent;
+        }
+
+        /* ---------- shared card / ledger sheet ---------- */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 24px;
+        }
+
+        .card {
+            background: var(--paper-card);
+            border-radius: 3px;
+            padding: 28px;
+            border: 1px solid var(--rule);
+            box-shadow: 0 1px 0 rgba(30,42,63,0.03);
+            position: relative;
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 22px;
+            flex-wrap: wrap;
+            gap: 12px;
+            padding-bottom: 16px;
+            border-bottom: 1px dashed var(--rule);
+        }
+
+        .card-title {
+            font-family: 'Fraunces', serif;
+            font-size: 19px;
+            font-weight: 600;
+            color: var(--ink);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .card-title .eyebrow {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--brass);
+            letter-spacing: 0.08em;
+        }
+
+        .card-title .badge {
+            background: var(--paper);
+            color: var(--ink-soft);
+            padding: 3px 10px;
+            border-radius: 2px;
+            font-size: 11.5px;
+            font-weight: 600;
+            font-family: 'IBM Plex Mono', monospace;
+            border: 1px solid var(--rule);
+        }
+
+        /* ---------- upload tray ---------- */
+        .upload-zone {
+            border: 2px dashed var(--rule);
+            border-radius: 3px;
+            padding: 44px 24px;
             text-align: center;
-            margin-bottom: 30px;
-            transition: all 0.3s ease;
             cursor: pointer;
+            transition: all 0.25s ease;
+            background:
+                repeating-linear-gradient(135deg, rgba(179,67,42,0.035) 0px, rgba(179,67,42,0.035) 2px, transparent 2px, transparent 14px),
+                var(--paper);
+            position: relative;
         }
 
-        .upload-section:hover {
-            border-color: #667eea;
-            background: #f0f1ff;
+        .upload-zone:hover {
+            border-color: var(--cut);
+            background:
+                repeating-linear-gradient(135deg, rgba(179,67,42,0.05) 0px, rgba(179,67,42,0.05) 2px, transparent 2px, transparent 14px),
+                #f6ede4;
         }
 
-        .upload-section.dragover {
-            border-color: #667eea;
-            background: #e8eaff;
+        .upload-zone.dragover {
+            border-color: var(--cut);
+            border-style: solid;
+            background: #f6ede4;
+            transform: scale(1.005);
+        }
+
+        .upload-zone.has-file {
+            border-color: var(--sage);
+            border-style: solid;
+            background: var(--paper-card);
+            padding: 22px;
         }
 
         .upload-icon {
-            font-size: 48px;
-            margin-bottom: 16px;
+            font-family: 'Fraunces', serif;
+            font-size: 15px;
+            color: var(--brass);
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            display: block;
+            margin-bottom: 10px;
         }
 
-        .upload-section h3 {
-            color: #333;
-            margin-bottom: 8px;
+        .upload-zone h3 {
+            font-family: 'Fraunces', serif;
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--ink);
+            margin-bottom: 4px;
         }
 
-        .upload-section p {
-            color: #6c757d;
-            font-size: 14px;
+        .upload-zone p {
+            color: var(--ink-soft);
+            font-size: 13.5px;
+        }
+
+        .upload-zone .file-info {
+            display: none;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            margin-top: 12px;
+            padding: 14px 20px;
+            background: var(--paper);
+            border-radius: 2px;
+            border: 1px solid var(--rule);
+        }
+
+        .upload-zone .file-info.show {
+            display: flex;
+        }
+
+        .file-info .file-name {
+            font-weight: 600;
+            color: var(--ink);
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 13px;
+        }
+
+        .file-info .file-size {
+            color: var(--ink-soft);
+            font-size: 12.5px;
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        .file-info .remove-btn {
+            background: var(--rust-soft);
+            border: none;
+            color: var(--rust);
+            padding: 5px 12px;
+            border-radius: 2px;
+            cursor: pointer;
+            font-size: 12.5px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .file-info .remove-btn:hover {
+            background: #e6b6ab;
         }
 
         #fileInput {
             display: none;
         }
 
-        .file-info {
-            display: none;
-            background: #e8f5e9;
-            padding: 16px 20px;
-            border-radius: 8px;
-            margin-top: 16px;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .file-info.show {
+        /* ---------- toolbar ---------- */
+        .toolbar {
             display: flex;
-        }
-
-        .file-info .file-name {
-            flex: 1;
-            font-weight: 500;
-            color: #2e7d32;
-        }
-
-        .file-info .file-size {
-            color: #555;
-            font-size: 14px;
-        }
-
-        .file-info .remove-file {
-            background: #dc3545;
-            color: white;
-            border: none;
-            padding: 4px 12px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 14px;
-        }
-
-        .file-info .remove-file:hover {
-            background: #c82333;
-        }
-
-        /* Controls */
-        .controls {
-            display: flex;
-            gap: 16px;
-            margin-bottom: 24px;
+            gap: 10px;
             flex-wrap: wrap;
+            margin-bottom: 20px;
+            align-items: center;
         }
 
-        .controls button {
-            padding: 12px 24px;
-            border: none;
-            border-radius: 8px;
+        .btn {
+            padding: 10px 18px;
+            border: 1px solid transparent;
+            border-radius: 2px;
             font-weight: 600;
-            font-size: 14px;
+            font-size: 13px;
+            letter-spacing: 0.2px;
             cursor: pointer;
-            transition: all 0.3s ease;
-            display: flex;
+            transition: all 0.2s ease;
+            display: inline-flex;
             align-items: center;
             gap: 8px;
+            text-decoration: none;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .btn:active {
+            transform: scale(0.97);
         }
 
         .btn-primary {
-            background: #667eea;
-            color: white;
+            background: var(--ink);
+            color: var(--paper);
         }
 
         .btn-primary:hover {
-            background: #5a67d8;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+            background: #2a3a56;
         }
 
         .btn-success {
-            background: #48bb78;
-            color: white;
+            background: var(--cut);
+            color: #fff5ee;
         }
 
         .btn-success:hover {
-            background: #38a169;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(72, 187, 120, 0.4);
+            background: #9c3a24;
         }
 
-        .btn-danger {
-            background: #fc8181;
-            color: white;
-        }
-
-        .btn-danger:hover {
-            background: #f56565;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(252, 129, 129, 0.4);
+        .btn-success:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            box-shadow: none;
         }
 
         .btn-secondary {
-            background: #e2e8f0;
-            color: #2d3748;
+            background: transparent;
+            color: var(--ink);
+            border-color: var(--rule);
         }
 
         .btn-secondary:hover {
-            background: #cbd5e0;
+            background: var(--paper);
+            border-color: var(--ink-soft);
         }
 
-        .btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none !important;
+        .btn-danger {
+            background: transparent;
+            color: var(--rust);
+            border-color: var(--rust-soft);
         }
 
-        /* Ranges Table */
-        .ranges-container {
-            margin-top: 24px;
+        .btn-danger:hover {
+            background: var(--rust-soft);
+        }
+
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+
+        /* ---------- ledger table ---------- */
+        .table-wrapper {
             overflow-x: auto;
-        }
-
-        .ranges-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 16px;
-        }
-
-        .ranges-header h2 {
-            font-size: 20px;
-            color: #2d3748;
-        }
-
-        .range-count {
-            background: #e2e8f0;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 14px;
-            color: #4a5568;
+            border-radius: 2px;
+            border: 1px solid var(--rule);
         }
 
         table {
             width: 100%;
             border-collapse: collapse;
-            background: white;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+            font-size: 14px;
         }
 
         thead {
-            background: #f7fafc;
-            border-bottom: 2px solid #e2e8f0;
+            background: var(--ink);
         }
 
         th {
-            padding: 14px 16px;
+            padding: 12px 16px;
             text-align: left;
             font-weight: 600;
-            color: #4a5568;
-            font-size: 14px;
+            color: var(--paper);
+            font-size: 11px;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.08em;
+            font-family: 'IBM Plex Mono', monospace;
         }
 
         td {
-            padding: 12px 16px;
-            border-bottom: 1px solid #e2e8f0;
+            padding: 10px 16px;
+            border-bottom: 1px dashed var(--rule);
             vertical-align: middle;
+            background: var(--paper-card);
         }
 
-        tr:hover {
-            background: #f7fafc;
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover td {
+            background: #f6f1e6;
         }
 
         .range-input {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-            flex-wrap: wrap;
+            width: 100%;
+            padding: 9px 12px;
+            border: 1px solid var(--rule);
+            border-radius: 2px;
+            font-size: 13.5px;
+            transition: all 0.2s;
+            font-family: 'IBM Plex Mono', monospace;
+            background: var(--paper);
+            color: var(--ink);
         }
 
-        .range-input input {
-            padding: 8px 12px;
-            border: 1px solid #e2e8f0;
-            border-radius: 6px;
-            font-size: 14px;
-            width: 80px;
-            transition: border-color 0.3s ease;
+        .range-input::placeholder {
+            color: #a9a08a;
         }
 
-        .range-input input:focus {
+        .range-input:focus {
             outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            border-color: var(--cut);
+            box-shadow: 0 0 0 3px rgba(181,67,42,0.12);
+            background: #fffdf8;
         }
 
-        .range-input input.name-input {
-            width: 140px;
-        }
-
-        .range-input span {
-            color: #718096;
+        .range-input.name-input {
+            max-width: 220px;
+            font-family: 'Inter', sans-serif;
             font-weight: 500;
         }
 
-        .delete-row {
+        .range-input.range-text {
+            min-width: 190px;
+        }
+
+        .delete-btn {
             background: none;
-            border: none;
-            color: #fc8181;
+            border: 1px dashed var(--rule);
+            color: #a9a08a;
             cursor: pointer;
-            font-size: 18px;
-            padding: 4px 8px;
-            border-radius: 4px;
-            transition: all 0.2s ease;
+            padding: 6px 10px;
+            border-radius: 2px;
+            transition: all 0.2s;
+            font-size: 14px;
+            font-family: 'IBM Plex Mono', monospace;
         }
 
-        .delete-row:hover {
-            background: #fed7d7;
-            color: #e53e3e;
+        .delete-btn:hover {
+            border-color: var(--rust);
+            color: var(--rust);
+            background: var(--rust-soft);
         }
 
-        .add-row {
-            margin-top: 16px;
-            padding: 12px;
+        .add-row-btn {
             width: 100%;
-            border: 2px dashed #e2e8f0;
-            border-radius: 8px;
+            padding: 13px;
+            border: 1px dashed var(--rule);
+            border-radius: 2px;
             background: none;
-            color: #4a5568;
+            color: var(--ink-soft);
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.3s ease;
+            transition: all 0.25s;
+            margin-top: 12px;
+            font-size: 13px;
+            font-family: 'IBM Plex Mono', monospace;
+            letter-spacing: 0.03em;
         }
 
-        .add-row:hover {
-            border-color: #667eea;
-            background: #f7fafc;
-            color: #667eea;
+        .add-row-btn:hover {
+            border-color: var(--cut);
+            color: var(--cut);
+            background: #f9f2ec;
         }
 
-        /* Status/Progress */
-        .status {
-            margin-top: 24px;
-            padding: 16px 20px;
-            border-radius: 8px;
+        /* ---------- status / progress ---------- */
+        .status-container {
+            margin-top: 20px;
+        }
+
+        .status-message {
+            padding: 13px 18px;
+            border-radius: 2px;
             display: none;
             align-items: center;
             gap: 12px;
+            font-size: 13.5px;
+            font-weight: 500;
+            border-left: 3px solid transparent;
         }
 
-        .status.show {
+        .status-message.show {
             display: flex;
         }
 
-        .status.info {
-            background: #bee3f8;
-            color: #2a69ac;
+        .status-message.info {
+            background: #e7ecf3;
+            color: #2a3a56;
+            border-left-color: var(--ink);
         }
 
-        .status.success {
-            background: #c6f6d5;
-            color: #22543d;
+        .status-message.success {
+            background: var(--sage-soft);
+            color: #2c4530;
+            border-left-color: var(--sage);
         }
 
-        .status.error {
-            background: #fed7d7;
-            color: #9b2c2c;
+        .status-message.error {
+            background: var(--rust-soft);
+            color: var(--rust);
+            border-left-color: var(--rust);
         }
 
-        .status .spinner {
-            width: 20px;
-            height: 20px;
-            border: 3px solid rgba(0, 0, 0, 0.1);
+        .status-message .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2.5px solid rgba(0,0,0,0.12);
             border-top-color: currentColor;
             border-radius: 50%;
             animation: spin 0.6s linear infinite;
+            flex-shrink: 0;
         }
 
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
 
-        /* Progress Bar */
-        .progress-container {
-            margin-top: 16px;
+        .progress-wrapper {
+            margin-top: 18px;
             display: none;
         }
 
-        .progress-container.show {
+        .progress-wrapper.show {
             display: block;
         }
 
-        .progress-bar {
+        .progress-track {
             width: 100%;
-            height: 8px;
-            background: #e2e8f0;
-            border-radius: 4px;
+            height: 4px;
+            background: var(--rule);
+            border-radius: 2px;
             overflow: hidden;
+            position: relative;
         }
 
-        .progress-bar .progress-fill {
+        .progress-track::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background-image: repeating-linear-gradient(90deg, transparent 0, transparent 9px, rgba(30,42,63,0.15) 9px, rgba(30,42,63,0.15) 10px);
+        }
+
+        .progress-fill {
             height: 100%;
-            background: linear-gradient(90deg, #667eea, #764ba2);
-            transition: width 0.3s ease;
+            background: var(--cut);
+            transition: width 0.4s ease;
             width: 0%;
+            position: relative;
+            z-index: 1;
         }
 
-        .progress-text {
+        .progress-label {
+            display: flex;
+            justify-content: space-between;
             margin-top: 8px;
-            font-size: 14px;
-            color: #4a5568;
+            font-size: 12px;
+            color: var(--ink-soft);
+            font-family: 'IBM Plex Mono', monospace;
         }
 
-        /* Export Section */
+        /* ---------- output tray ---------- */
         .export-section {
-            margin-top: 24px;
-            padding: 20px;
-            background: #f7fafc;
-            border-radius: 8px;
+            margin-top: 22px;
+            padding: 22px;
+            background: var(--paper);
+            border-radius: 2px;
             display: none;
+            border: 1px solid var(--rule);
+            border-top: 3px solid var(--sage);
         }
 
         .export-section.show {
             display: block;
         }
 
-        .export-section h3 {
-            color: #2d3748;
-            margin-bottom: 12px;
+        .export-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 14px;
+            flex-wrap: wrap;
+            gap: 12px;
         }
 
-        .export-list {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        .export-header h3 {
+            font-family: 'Fraunces', serif;
+            font-size: 17px;
+            font-weight: 600;
+            color: var(--ink);
+            display: flex;
+            align-items: center;
             gap: 8px;
-            margin-top: 12px;
+        }
+
+        .export-header span {
+            font-size: 12px;
+            color: var(--ink-soft);
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        .export-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+            gap: 8px;
         }
 
         .export-item {
-            background: white;
-            padding: 8px 12px;
-            border-radius: 6px;
-            border: 1px solid #e2e8f0;
-            font-size: 14px;
-            color: #2d3748;
+            background: var(--paper-card);
+            padding: 10px 14px;
+            border-radius: 2px;
+            border: 1px solid var(--rule);
+            border-left: 3px solid var(--brass);
             display: flex;
-            justify-content: space-between;
             align-items: center;
+            justify-content: space-between;
+            font-size: 12.5px;
+            color: var(--ink);
+            font-family: 'IBM Plex Mono', monospace;
         }
 
-        .export-item .badge {
-            background: #48bb78;
-            color: white;
-            padding: 2px 10px;
-            border-radius: 12px;
+        .export-item .check {
+            color: var(--sage);
+            font-weight: 700;
+        }
+
+        .export-actions {
+            margin-top: 18px;
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .footer {
+            margin-top: 36px;
+            text-align: center;
+            color: #a9a08a;
             font-size: 12px;
+            font-family: 'IBM Plex Mono', monospace;
+            letter-spacing: 0.03em;
+            padding: 16px;
         }
 
-        /* Responsive */
         @media (max-width: 768px) {
+            body {
+                padding: 16px 12px;
+            }
+
             .header {
                 padding: 20px;
-            }
-            
-            .header h1 {
-                font-size: 24px;
-            }
-            
-            .content {
-                padding: 20px;
-            }
-            
-            .range-input input {
-                width: 60px;
-            }
-            
-            .range-input input.name-input {
-                width: 100px;
-            }
-            
-            .controls {
                 flex-direction: column;
+                align-items: stretch;
             }
-            
-            .controls button {
+
+            .header-left {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 4px;
+            }
+
+            .header-right {
+                flex-wrap: wrap;
+            }
+
+            .card {
+                padding: 18px;
+            }
+
+            .upload-zone {
+                padding: 30px 14px;
+            }
+
+            .toolbar {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .toolbar .btn {
                 width: 100%;
                 justify-content: center;
             }
+
+            .toolbar span {
+                text-align: center;
+            }
+
+            .range-input.name-input {
+                max-width: 100%;
+            }
+
+            .range-input.range-text {
+                min-width: 100%;
+            }
+
+            td {
+                padding: 8px 10px;
+            }
+
+            .export-grid {
+                grid-template-columns: 1fr;
+            }
         }
 
-        /* Scrollable table container */
-        .table-wrapper {
-            overflow-x: auto;
-            border-radius: 8px;
+        @media (min-width: 769px) and (max-width: 1024px) {
+            .card {
+                padding: 22px;
+            }
         }
 
-        /* Example ranges badge */
-        .example-badge {
-            display: inline-block;
-            background: #e9d5ff;
-            color: #6b21a5;
-            padding: 4px 12px;
-            border-radius: 12px;
-            font-size: 12px;
-            margin-left: 8px;
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
         }
 
-        .tooltip {
-            position: relative;
-            cursor: help;
+        ::-webkit-scrollbar-track {
+            background: var(--paper);
         }
 
-        .tooltip:hover::after {
-            content: attr(data-tip);
-            position: absolute;
-            bottom: 100%;
-            left: 50%;
-            transform: translateX(-50%);
-            background: #1a202c;
-            color: white;
-            padding: 4px 12px;
-            border-radius: 4px;
-            font-size: 12px;
-            white-space: nowrap;
-            margin-bottom: 4px;
+        ::-webkit-scrollbar-thumb {
+            background: var(--rule);
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--brass);
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <!-- Header -->
-        <div class="header">
-            <h1>📄 PDF Splitter</h1>
-            <p>Split your PDF into multiple files based on custom page ranges</p>
-        </div>
+    <div class="app-container">
+        <header class="header">
+            <div class="header-left">
+                <span class="header-mark">✂</span>
+                <div>
+                    <h1>The VPDF</h1>
+                    <span class="header-subtitle">Cut any PDF along your own page Number's</span>
+                </div>
+            </div>
+            <div class="header-right">
+                <span class="status-badge" id="systemStatus">STANDBY</span>
+                <span class="status-badge" id="pageCount">0 PAGES</span>
+            </div>
+        </header>
 
-        <!-- Content -->
-        <div class="content">
-            <!-- File Upload -->
-            <div class="upload-section" id="uploadSection">
-                <div class="upload-icon">📤</div>
-                <h3>Upload your PDF file</h3>
-                <p>Drag and drop or click to browse</p>
-                <input type="file" id="fileInput" accept=".pdf">
-                
-                <div class="file-info" id="fileInfo">
-                    <span class="file-name" id="fileName">document.pdf</span>
-                    <span class="file-size" id="fileSize">2.4 MB</span>
-                    <button class="remove-file" id="removeFile">✕</button>
+        <div class="main-grid">
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span class="eyebrow">01</span>
+                        Select Your Pdf                        <span class="badge">Required</span>
+                    </div>
+                    <span style="font-size:12px; color:var(--ink-soft); font-family:'IBM Plex Mono',monospace;">.pdf only</span>
+                </div>
+
+                <div class="upload-zone" id="uploadZone">
+                    <span class="upload-icon">— place document on the tray —</span>
+                    <h3>Drop your PDF here</h3>
+                    <p>or click to browse your files</p>
+                    <input type="file" id="fileInput" accept=".pdf">
+
+                    <div class="file-info" id="fileInfo">
+                        <span class="file-name" id="fileName">document.pdf</span>
+                        <span class="file-size" id="fileSize">2.4 MB</span>
+                        <button class="remove-btn" id="removeFileBtn">Remove</button>
+                    </div>
                 </div>
             </div>
 
-            <!-- Controls -->
-            <div class="controls">
-                <button class="btn-primary" id="addRangeBtn">
-                    ➕ Add Range
-                </button>
-                <button class="btn-success" id="processBtn" disabled>
-                    🚀 Process PDF
-                </button>
-                <button class="btn-secondary" id="exampleBtn">
-                    📋 Load Example
-                </button>
-                <button class="btn-danger" id="clearAllBtn">
-                    🗑️ Clear All
-                </button>
-            </div>
-
-            <!-- Ranges Table -->
-            <div class="ranges-container">
-                <div class="ranges-header">
-                    <h2>Page Ranges</h2>
-                    <span class="range-count" id="rangeCount">0 ranges</span>
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span class="eyebrow">02</span>
+                        Mark the Cuts
+                        <span class="badge" id="rangeCount">0 ranges</span>
+                    </div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                        <button class="btn btn-secondary btn-sm" id="exampleBtn">Use Example Marks</button>
+                        <button class="btn btn-danger btn-sm" id="clearAllBtn">Clear Table</button>
+                    </div>
                 </div>
-                
+
+                <div class="toolbar">
+                    <button class="btn btn-primary" id="addRangeBtn">Add New Range</button>
+                    <button class="btn btn-success" id="processBtn" disabled>
+                        ✂ Get New Pdf's
+                    </button>
+                    <span style="font-size:12px; color:#a9a08a; align-self:center; margin-left:auto; font-family:'IBM Plex Mono',monospace;">
+                        ⌘ 
+                    </span>
+                </div>
+
                 <div class="table-wrapper">
                     <table>
                         <thead>
                             <tr>
-                                <th style="width: 30%">Output Name</th>
-                                <th style="width: 55%">Page Range(s)</th>
-                                <th style="width: 15%">Action</th>
+                                <th style="width:25%;">Pdf  Name</th>
+                                <th style="width:55%;">Page Range(s)</th>
+                                <th style="width:20%; text-align:center;">Discard</th>
                             </tr>
                         </thead>
                         <tbody id="rangesBody">
-                            <!-- Rows will be added here -->
                         </tbody>
                     </table>
                 </div>
-                
-                <button class="add-row" id="addRangeBtnBottom">
-                    + Add new range
-                </button>
-            </div>
 
-            <!-- Status -->
-            <div class="status" id="status">
-                <span id="statusMessage">Processing...</span>
-            </div>
+                <button class="add-row-btn" id="addRangeBtnBottom">+ Add New Range</button>
 
-            <!-- Progress -->
-            <div class="progress-container" id="progressContainer">
-                <div class="progress-bar">
-                    <div class="progress-fill" id="progressFill"></div>
+                <div class="status-container">
+                    <div class="status-message" id="statusMessage">
+                        <span id="statusText">Processing...</span>
+                    </div>
                 </div>
-                <div class="progress-text" id="progressText">0%</div>
-            </div>
 
-            <!-- Export Section -->
-            <div class="export-section" id="exportSection">
-                <h3>✅ Split Complete! Files created:</h3>
-                <div class="export-list" id="exportList">
-                    <!-- Exported files will be listed here -->
+                <div class="progress-wrapper" id="progressWrapper">
+                    <div class="progress-track">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                    <div class="progress-label">
+                        <span id="progressText">0%</span>
+                        <span id="progressStatus">Processing...</span>
+                    </div>
                 </div>
-                <button class="btn-primary" id="downloadAllBtn" style="margin-top: 16px;">
-                    📦 Download All as ZIP
-                </button>
+
+                <div class="export-section" id="exportSection">
+                    <div class="export-header">
+                        <h3>✓ Bound and Ready</h3>
+                        <span>your booklets are stacked below</span>
+                    </div>
+                    <div class="export-grid" id="exportList">
+                    </div>
+                    <div class="export-actions">
+                        <button class="btn btn-primary" id="downloadAllBtn">Download Stack as ZIP</button>
+                        <button class="btn btn-secondary" id="resetBtn">Clear the Bench</button>
+                    </div>
+                </div>
             </div>
+        </div>
+
+        <div class="footer">
+            THE BINDERY — nothing you feed the press is kept on the shelf
         </div>
     </div>
 
     <script>
-        // State
-        let ranges = [];
-        let uploadedFile = null;
-        let totalPages = 0;
-        let isProcessing = false;
+        const state = {
+            ranges: [],
+            uploadedFile: null,
+            isProcessing: false,
+            totalPages: 0
+        };
 
-        // DOM Elements
-        const uploadSection = document.getElementById('uploadSection');
-        const fileInput = document.getElementById('fileInput');
-        const fileInfo = document.getElementById('fileInfo');
-        const fileName = document.getElementById('fileName');
-        const fileSize = document.getElementById('fileSize');
-        const removeFileBtn = document.getElementById('removeFile');
-        const rangesBody = document.getElementById('rangesBody');
-        const rangeCount = document.getElementById('rangeCount');
-        const addRangeBtn = document.getElementById('addRangeBtn');
-        const addRangeBtnBottom = document.getElementById('addRangeBtnBottom');
-        const processBtn = document.getElementById('processBtn');
-        const exampleBtn = document.getElementById('exampleBtn');
-        const clearAllBtn = document.getElementById('clearAllBtn');
-        const status = document.getElementById('status');
-        const statusMessage = document.getElementById('statusMessage');
-        const progressContainer = document.getElementById('progressContainer');
-        const progressFill = document.getElementById('progressFill');
-        const progressText = document.getElementById('progressText');
-        const exportSection = document.getElementById('exportSection');
-        const exportList = document.getElementById('exportList');
-        const downloadAllBtn = document.getElementById('downloadAllBtn');
+        const elements = {
+            uploadZone: document.getElementById('uploadZone'),
+            fileInput: document.getElementById('fileInput'),
+            fileInfo: document.getElementById('fileInfo'),
+            fileName: document.getElementById('fileName'),
+            fileSize: document.getElementById('fileSize'),
+            removeFileBtn: document.getElementById('removeFileBtn'),
+            rangesBody: document.getElementById('rangesBody'),
+            rangeCount: document.getElementById('rangeCount'),
+            addRangeBtn: document.getElementById('addRangeBtn'),
+            addRangeBtnBottom: document.getElementById('addRangeBtnBottom'),
+            processBtn: document.getElementById('processBtn'),
+            exampleBtn: document.getElementById('exampleBtn'),
+            clearAllBtn: document.getElementById('clearAllBtn'),
+            downloadAllBtn: document.getElementById('downloadAllBtn'),
+            resetBtn: document.getElementById('resetBtn'),
+            statusMessage: document.getElementById('statusMessage'),
+            statusText: document.getElementById('statusText'),
+            progressWrapper: document.getElementById('progressWrapper'),
+            progressFill: document.getElementById('progressFill'),
+            progressText: document.getElementById('progressText'),
+            progressStatus: document.getElementById('progressStatus'),
+            exportSection: document.getElementById('exportSection'),
+            exportList: document.getElementById('exportList'),
+            systemStatus: document.getElementById('systemStatus'),
+            pageCount: document.getElementById('pageCount')
+        };
 
-        // Utility Functions
         function formatFileSize(bytes) {
             if (bytes === 0) return '0 B';
             const k = 1024;
@@ -669,99 +927,100 @@ HTML_TEMPLATE = '''
             return Date.now() + '-' + Math.random().toString(36).substr(2, 9);
         }
 
-        function updateRangeCount() {
-            rangeCount.textContent = ranges.length + ' range' + (ranges.length !== 1 ? 's' : '');
-            processBtn.disabled = ranges.length === 0 || !uploadedFile;
+        function updateUI() {
+            const count = state.ranges.length;
+            elements.rangeCount.textContent = count + ' range' + (count !== 1 ? 's' : '');
+            elements.processBtn.disabled = count === 0 || !state.uploadedFile || state.isProcessing;
+            elements.pageCount.textContent = '📄 ' + state.totalPages + ' pages';
         }
 
         function showStatus(message, type = 'info') {
-            status.className = 'status show ' + type;
-            statusMessage.textContent = message;
+            const el = elements.statusMessage;
+            el.className = 'status-message show ' + type;
+            elements.statusText.textContent = message;
         }
 
         function hideStatus() {
-            status.className = 'status';
+            elements.statusMessage.className = 'status-message';
         }
 
-        function showProgress(percent, text) {
-            progressContainer.classList.add('show');
-            progressFill.style.width = percent + '%';
-            progressText.textContent = text || percent + '%';
+        function showProgress(percent, status = 'Processing...') {
+            elements.progressWrapper.classList.add('show');
+            elements.progressFill.style.width = percent + '%';
+            elements.progressText.textContent = percent + '%';
+            elements.progressStatus.textContent = status;
         }
 
         function hideProgress() {
-            progressContainer.classList.remove('show');
+            elements.progressWrapper.classList.remove('show');
         }
 
         function showExport(files) {
-            exportSection.classList.add('show');
-            exportList.innerHTML = files.map(file => `
+            elements.exportSection.classList.add('show');
+            elements.exportList.innerHTML = files.map(file => `
                 <div class="export-item">
                     <span>${file}</span>
-                    <span class="badge">✓</span>
+                    <span class="check">✓</span>
                 </div>
             `).join('');
         }
 
         function hideExport() {
-            exportSection.classList.remove('show');
+            elements.exportSection.classList.remove('show');
         }
 
-        // Add Range Row
-        function addRangeRow(name = '', rangesStr = '') {
+        function addRangeRow(name = '', rangeStr = '') {
             const id = generateId();
             const row = document.createElement('tr');
             row.dataset.id = id;
             row.innerHTML = `
                 <td>
-                    <input type="text" class="name-input" placeholder="e.g., chapter1" value="${name}" style="width: 100%; padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 14px;">
+                    <input type="text" class="range-input name-input" 
+                           placeholder="e.g., chapter1" value="${name}">
                 </td>
                 <td>
-                    <input type="text" class="range-input-text" placeholder="e.g., 1-5,10-15" value="${rangesStr}" style="width: 100%; padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 14px;">
+                    <input type="text" class="range-input range-text" 
+                           placeholder="e.g., 1-5, 10-15" value="${rangeStr}">
                 </td>
-                <td>
-                    <button class="delete-row" data-id="${id}">✕</button>
+                <td style="text-align:center;">
+                    <button class="delete-btn" data-id="${id}">✕</button>
                 </td>
             `;
-            
-            rangesBody.appendChild(row);
-            
-            // Store in state
+
+            elements.rangesBody.appendChild(row);
+
             const nameInput = row.querySelector('.name-input');
-            const rangeInput = row.querySelector('.range-input-text');
+            const rangeInput = row.querySelector('.range-text');
             
-            ranges.push({
+            state.ranges.push({
                 id: id,
                 name: name,
-                ranges: rangesStr
+                ranges: rangeStr
             });
-            
-            // Update state on change
+
             nameInput.addEventListener('input', () => {
-                const found = ranges.find(r => r.id === id);
+                const found = state.ranges.find(r => r.id === id);
                 if (found) found.name = nameInput.value;
             });
-            
+
             rangeInput.addEventListener('input', () => {
-                const found = ranges.find(r => r.id === id);
+                const found = state.ranges.find(r => r.id === id);
                 if (found) found.ranges = rangeInput.value;
             });
-            
-            // Delete
-            row.querySelector('.delete-row').addEventListener('click', () => {
+
+            row.querySelector('.delete-btn').addEventListener('click', () => {
                 row.remove();
-                const index = ranges.findIndex(r => r.id === id);
-                if (index > -1) ranges.splice(index, 1);
-                updateRangeCount();
+                const index = state.ranges.findIndex(r => r.id === id);
+                if (index > -1) state.ranges.splice(index, 1);
+                updateUI();
                 hideExport();
             });
-            
-            updateRangeCount();
+
+            updateUI();
         }
 
-        // Parse ranges string
         function parseRanges(rangeStr) {
-            if (!rangeStr.trim()) return [];
+            if (!rangeStr.trim()) return null;
             
             const parts = rangeStr.split(',').map(s => s.trim());
             const parsed = [];
@@ -784,36 +1043,52 @@ HTML_TEMPLATE = '''
                 }
             }
             
-            return parsed;
+            return parsed.length > 0 ? parsed : null;
         }
 
-        // Process PDF
-        async function processPDF() {
-            if (!uploadedFile || ranges.length === 0 || isProcessing) return;
+        function handleFile(file) {
+            if (file.type !== 'application/pdf') {
+                showStatus('Please upload a valid PDF file.', 'error');
+                return;
+            }
+
+            state.uploadedFile = file;
+            elements.fileName.textContent = file.name;
+            elements.fileSize.textContent = formatFileSize(file.size);
+            elements.fileInfo.classList.add('show');
+            elements.uploadZone.classList.add('has-file');
             
-            isProcessing = true;
-            processBtn.disabled = true;
+            state.totalPages = 0;
+            showStatus('✅ Loaded "' + file.name + '"', 'success');
+            updateUI();
+            hideExport();
+        }
+
+        async function processPDF() {
+            if (!state.uploadedFile || state.ranges.length === 0 || state.isProcessing) return;
+            
+            state.isProcessing = true;
+            updateUI();
             hideExport();
             hideStatus();
             showProgress(0, 'Preparing...');
             
             try {
-                // Validate all ranges first
                 const validatedRanges = [];
-                for (const range of ranges) {
+                for (const range of state.ranges) {
                     if (!range.name.trim()) {
                         showStatus('Please provide a name for all ranges.', 'error');
-                        isProcessing = false;
-                        processBtn.disabled = false;
+                        state.isProcessing = false;
+                        updateUI();
                         hideProgress();
                         return;
                     }
                     
                     const parsed = parseRanges(range.ranges);
-                    if (!parsed || parsed.length === 0) {
-                        showStatus(`Invalid range format for "${range.name}". Use e.g., "1-5,10-15"`, 'error');
-                        isProcessing = false;
-                        processBtn.disabled = false;
+                    if (!parsed) {
+                        showStatus('Invalid range format for "' + range.name + '". Use e.g., "1-5,10-15"', 'error');
+                        state.isProcessing = false;
+                        updateUI();
                         hideProgress();
                         return;
                     }
@@ -824,27 +1099,24 @@ HTML_TEMPLATE = '''
                     });
                 }
                 
-                // Create form data
                 const formData = new FormData();
-                formData.append('pdf', uploadedFile);
+                formData.append('pdf', state.uploadedFile);
                 formData.append('ranges', JSON.stringify(validatedRanges));
                 
-                showProgress(30, 'Sending to server...');
+                showProgress(30, 'Uploading to server...');
                 
-                // Send to backend
                 const response = await fetch('/process-pdf', {
                     method: 'POST',
                     body: formData
                 });
                 
-                showProgress(70, 'Processing...');
+                showProgress(70, 'Processing PDF...');
                 
                 if (!response.ok) {
                     const error = await response.text();
                     throw new Error(error || 'Failed to process PDF');
                 }
                 
-                // Get the ZIP file
                 const blob = await response.blob();
                 const url = window.URL.createObjectURL(blob);
                 const link = document.createElement('a');
@@ -858,7 +1130,6 @@ HTML_TEMPLATE = '''
                 showProgress(100, 'Complete!');
                 showStatus('✅ PDF split successfully! Download started.', 'success');
                 
-                // Show exported files (simulate)
                 const fileNames = validatedRanges.map(r => r.name + '.pdf');
                 showExport(fileNames);
                 
@@ -866,91 +1137,87 @@ HTML_TEMPLATE = '''
                 showStatus('❌ Error: ' + error.message, 'error');
                 console.error(error);
             } finally {
-                isProcessing = false;
-                processBtn.disabled = false;
-                setTimeout(() => {
-                    hideProgress();
-                }, 2000);
+                state.isProcessing = false;
+                updateUI();
+                setTimeout(() => hideProgress(), 3000);
             }
         }
 
-        // File upload handlers
-        uploadSection.addEventListener('click', () => fileInput.click());
+        function resetAll() {
+            if (state.ranges.length > 0 || state.uploadedFile) {
+                if (!confirm('This will clear all ranges and uploaded file. Continue?')) return;
+            }
+            
+            state.ranges = [];
+            state.uploadedFile = null;
+            state.totalPages = 0;
+            state.isProcessing = false;
+            
+            elements.rangesBody.innerHTML = '';
+            elements.fileInfo.classList.remove('show');
+            elements.uploadZone.classList.remove('has-file');
+            elements.fileInput.value = '';
+            hideExport();
+            hideStatus();
+            hideProgress();
+            updateUI();
+            addRangeRow();
+        }
+
+        // Event Listeners
+        elements.uploadZone.addEventListener('click', () => elements.fileInput.click());
         
-        uploadSection.addEventListener('dragover', (e) => {
+        elements.uploadZone.addEventListener('dragover', (e) => {
             e.preventDefault();
-            uploadSection.classList.add('dragover');
+            elements.uploadZone.classList.add('dragover');
         });
         
-        uploadSection.addEventListener('dragleave', (e) => {
+        elements.uploadZone.addEventListener('dragleave', (e) => {
             e.preventDefault();
-            uploadSection.classList.remove('dragover');
+            elements.uploadZone.classList.remove('dragover');
         });
         
-        uploadSection.addEventListener('drop', (e) => {
+        elements.uploadZone.addEventListener('drop', (e) => {
             e.preventDefault();
-            uploadSection.classList.remove('dragover');
+            elements.uploadZone.classList.remove('dragover');
             const files = e.dataTransfer.files;
-            if (files.length > 0 && files[0].type === 'application/pdf') {
+            if (files.length > 0) {
                 handleFile(files[0]);
-            } else {
-                showStatus('Please upload a valid PDF file.', 'error');
             }
         });
         
-        fileInput.addEventListener('change', (e) => {
+        elements.fileInput.addEventListener('change', (e) => {
             if (e.target.files.length > 0) {
                 handleFile(e.target.files[0]);
             }
         });
         
-        function handleFile(file) {
-            uploadedFile = file;
-            fileName.textContent = file.name;
-            fileSize.textContent = formatFileSize(file.size);
-            fileInfo.classList.add('show');
-            uploadSection.style.borderColor = '#48bb78';
-            
-            // Read total pages
-            const reader = new FileReader();
-            reader.onload = async (e) => {
-                try {
-                    // Try to get page count using a simple method
-                    // For now, we'll just show a generic message
-                    showStatus(`✅ Loaded "${file.name}"`, 'success');
-                    processBtn.disabled = ranges.length === 0;
-                } catch (error) {
-                    console.error('Error reading PDF:', error);
-                    showStatus('Could not read PDF pages. Please try another file.', 'error');
-                }
-            };
-            reader.readAsArrayBuffer(file);
-            
-            hideExport();
-        }
-        
-        removeFileBtn.addEventListener('click', () => {
-            uploadedFile = null;
-            totalPages = 0;
-            fileInfo.classList.remove('show');
-            uploadSection.style.borderColor = '#dee2e6';
-            fileInput.value = '';
-            processBtn.disabled = true;
+        elements.removeFileBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            state.uploadedFile = null;
+            state.totalPages = 0;
+            elements.fileInfo.classList.remove('show');
+            elements.uploadZone.classList.remove('has-file');
+            elements.fileInput.value = '';
+            updateUI();
             hideStatus();
             hideExport();
         });
 
-        // Add range buttons
-        addRangeBtn.addEventListener('click', () => addRangeRow());
-        addRangeBtnBottom.addEventListener('click', () => addRangeRow());
-
-        // Load Example
-        exampleBtn.addEventListener('click', () => {
-            // Clear existing
-            rangesBody.innerHTML = '';
-            ranges = [];
+        elements.addRangeBtn.addEventListener('click', () => addRangeRow());
+        elements.addRangeBtnBottom.addEventListener('click', () => addRangeRow());
+        elements.processBtn.addEventListener('click', processPDF);
+        elements.downloadAllBtn.addEventListener('click', processPDF);
+        elements.resetBtn.addEventListener('click', resetAll);
+        
+        elements.exampleBtn.addEventListener('click', () => {
+            if (state.ranges.length > 0) {
+                if (!confirm('This will replace all current ranges. Continue?')) return;
+            }
             
-            // Add example ranges
+            elements.rangesBody.innerHTML = '';
+            state.ranges = [];
+            
             const examples = [
                 ['chapter1', '24-27,90-98'],
                 ['chapter2', '28-30,98-100'],
@@ -963,35 +1230,25 @@ HTML_TEMPLATE = '''
                 ['chapter9', '50-52,118-122']
             ];
             
-            for (const [name, rangesStr] of examples) {
-                addRangeRow(name, rangesStr);
+            for (const [name, rangeStr] of examples) {
+                addRangeRow(name, rangeStr);
             }
             
             showStatus('✅ Example ranges loaded! Upload a PDF to get started.', 'success');
         });
-
-        // Clear All
-        clearAllBtn.addEventListener('click', () => {
-            if (ranges.length === 0) return;
-            if (confirm('Are you sure you want to clear all ranges?')) {
-                rangesBody.innerHTML = '';
-                ranges = [];
-                updateRangeCount();
+        
+        elements.clearAllBtn.addEventListener('click', () => {
+            if (state.ranges.length === 0) return;
+            if (confirm('Clear all ranges?')) {
+                elements.rangesBody.innerHTML = '';
+                state.ranges = [];
+                updateUI();
                 hideExport();
                 hideStatus();
+                addRangeRow();
             }
         });
 
-        // Process button
-        processBtn.addEventListener('click', processPDF);
-
-        // Download All (actually just triggers processing again if files exist)
-        downloadAllBtn.addEventListener('click', processPDF);
-
-        // Initialize with one empty row
-        addRangeRow();
-
-        // Add keyboard shortcut
         document.addEventListener('keydown', (e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
                 e.preventDefault();
@@ -999,40 +1256,17 @@ HTML_TEMPLATE = '''
             }
         });
 
-        console.log('📄 PDF Splitter loaded!');
-        console.log('💡 Tips:');
-        console.log('  - Add page ranges like "1-5" or "10-15,20-25"');
-        console.log('  - Use Ctrl+Enter to process');
-        console.log('  - Drag and drop PDF files');
+        // Initialize
+        addRangeRow();
+        updateUI();
+        elements.systemStatus.textContent = '● READY';
+        elements.systemStatus.className = 'status-badge active';
     </script>
 </body>
-</html>
-'''
+</html>'''
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-def parse_range_string(range_str):
-    """Parse range string like '1-5,10-15' into list of tuples"""
-    if not range_str or not range_str.strip():
-        return []
-    
-    parts = range_str.split(',')
-    ranges = []
-    
-    for part in parts:
-        part = part.strip()
-        if '-' in part:
-            start, end = part.split('-')
-            start = int(start.strip())
-            end = int(end.strip())
-            if start <= end:
-                ranges.append((start, end))
-        else:
-            num = int(part)
-            ranges.append((num, num))
-    
-    return ranges
 
 @app.route('/')
 def index():
