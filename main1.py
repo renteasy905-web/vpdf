@@ -163,9 +163,9 @@ $('download').onclick=()=>{if(!S.zip)return;const a=document.createElement('a');
 </script></body></html>'''
 
 
-@app.route('/')
-def index():
-    return render_template_string(HTML)
+@app.route("/main1")
+def main1():
+    return render_template_string(HTML_TEMPLATE)
 
 
 @app.route('/analyze', methods=['POST'])
