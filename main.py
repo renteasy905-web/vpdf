@@ -7,7 +7,6 @@ import tempfile
 import zipfile
 from io import BytesIO
 
-
 app = Flask(__name__)
 CORS(app)
 
@@ -19,7 +18,7 @@ os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf'}
 
 # HTML Frontend (embedded) - VIP PDF Splitter Design with Loader
-HTML_TEMPLATE = '''<!DOCTYPE html>
+HTML_TEMPLATE = r'''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -1055,12 +1054,10 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
 
                 <div class="bulk-add-panel" id="bulkAddPanel">
                     <div class="bulk-add-label">
-                        One entry per line. Separate the <strong>name</strong> and the <strong>page range</strong> with a
-                        <code>Tab</code>, a <code>:</code>, or a <code>|</code> — e.g.<br>
-                        <code>chapter1&nbsp;&nbsp;&nbsp;24-27,90-98</code> &nbsp;or&nbsp; <code>chapter1: 24-27,90-98</code><br>
-                        You can also paste two columns straight out of Excel/Google Sheets (name column, then range column).
+                        Paste entries in the format <code>(name, [range])</code>, comma-separated — one long line or spread across lines, either is fine. e.g.<br>
+                        <code>(chapter1, [1-3,22-23]), (chapter2, [4-6,24-26]), (chapter3, [7-9,27-29])</code>
                     </div>
-                    <textarea class="bulk-add-textarea" id="bulkAddTextarea" placeholder="chapter1&#9;24-27,90-98&#10;chapter2&#9;28-30,98-100&#10;chapter3&#9;31-33,100-105"></textarea>
+                    <textarea class="bulk-add-textarea" id="bulkAddTextarea" placeholder="(chapter1, [1-3,22-23]), (chapter2, [4-6,24-26]), (chapter3, [7-9,27-29])"></textarea>
                     <div class="bulk-add-actions">
                         <button class="btn btn-gold btn-sm" id="bulkAddParseBtn">Parse &amp; Add Rows</button>
                         <button class="btn btn-secondary btn-sm" id="bulkAddCancelBtn">Cancel</button>
@@ -1315,51 +1312,38 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             return parsed.length > 0 ? parsed : null;
         }
 
-        // ---------- Bulk Add: parse pasted "name <sep> range" lines ----------
-        function splitNameAndRange(line) {
-            // Prefer a real tab (spreadsheet paste), then ':' , then '|'
-            let sep = null;
-            if (line.includes('\t')) {
-                sep = '\t';
-            } else if (line.includes(':')) {
-                sep = ':';
-            } else if (line.includes('|')) {
-                sep = '|';
-            }
-            if (!sep) return null;
-
-            const idx = line.indexOf(sep);
-            const name = line.slice(0, idx).trim();
-            const rangeStr = line.slice(idx + 1).trim();
-            if (!name || !rangeStr) return null;
-            return { name, rangeStr };
-        }
+        // ---------- Bulk Add: parse pasted "(name, [range])" entries ----------
+        // Matches groups like: (chapter1, [1-3,22-23])
+        // Entries can be comma-separated on one line, or spread across multiple lines - either works.
+        const BULK_ENTRY_REGEX = /\(\s*([^,()\[\]]+?)\s*,\s*\[\s*([^\]]*?)\s*\]\s*\)/g;
 
         function parseBulkAddText(text) {
-            const lines = text.split(/\r?\n/);
             const validEntries = [];
-            const badLines = [];
+            const badEntries = [];
+            let matchCount = 0;
+            let match;
 
-            for (const rawLine of lines) {
-                const line = rawLine.trim();
-                if (!line) continue;
+            BULK_ENTRY_REGEX.lastIndex = 0;
+            while ((match = BULK_ENTRY_REGEX.exec(text)) !== null) {
+                matchCount++;
+                const name = match[1].trim();
+                const rangeStr = match[2].trim();
 
-                const split = splitNameAndRange(line);
-                if (!split) {
-                    badLines.push(rawLine);
+                if (!name || !rangeStr) {
+                    badEntries.push(match[0]);
                     continue;
                 }
 
-                const parsed = parseRanges(split.rangeStr);
+                const parsed = parseRanges(rangeStr);
                 if (!parsed) {
-                    badLines.push(rawLine);
+                    badEntries.push(match[0]);
                     continue;
                 }
 
-                validEntries.push({ name: split.name, rangeStr: split.rangeStr });
+                validEntries.push({ name, rangeStr });
             }
 
-            return { validEntries, badLines };
+            return { validEntries, badEntries, matchCount };
         }
 
         function showBulkAddPanel() {
@@ -1374,14 +1358,19 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         function runBulkAdd() {
             const text = elements.bulkAddTextarea.value;
             if (!text.trim()) {
-                showStatus('Paste some lines into the bulk add box first.', 'error');
+                showStatus('Paste some entries into the bulk add box first.', 'error');
                 return;
             }
 
-            const { validEntries, badLines } = parseBulkAddText(text);
+            const { validEntries, badEntries, matchCount } = parseBulkAddText(text);
+
+            if (matchCount === 0) {
+                showStatus('❌ No entries found. Use the format (name, [range]) e.g. (chapter1, [1-3,22-23]).', 'error');
+                return;
+            }
 
             if (validEntries.length === 0) {
-                showStatus('❌ Could not parse any lines. Use "name<TAB>range", "name: range" or "name | range" per line.', 'error');
+                showStatus('❌ Found entries but none had a valid page range. Check the numbers inside the [ ].', 'error');
                 return;
             }
 
@@ -1393,8 +1382,8 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             hideBulkAddPanel();
             hideExport();
 
-            if (badLines.length > 0) {
-                showStatus('✅ Added ' + validEntries.length + ' rows. ⚠️ Skipped ' + badLines.length + ' line(s) that could not be parsed.', 'info');
+            if (badEntries.length > 0) {
+                showStatus('✅ Added ' + validEntries.length + ' rows. ⚠️ Skipped ' + badEntries.length + ' entrie(s) with an invalid range.', 'info');
             } else {
                 showStatus('✅ Added ' + validEntries.length + ' rows from your pasted list.', 'success');
             }
