@@ -648,6 +648,62 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             background: #f9f2ec;
         }
 
+        /* ---------- bulk add panel ---------- */
+        .bulk-add-panel {
+            display: none;
+            margin-bottom: 18px;
+            padding: 18px;
+            background: var(--paper);
+            border: 1px solid var(--rule);
+            border-left: 3px solid var(--brass);
+            border-radius: 2px;
+        }
+
+        .bulk-add-panel.show {
+            display: block;
+        }
+
+        .bulk-add-panel .bulk-add-label {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11.5px;
+            color: var(--ink-soft);
+            margin-bottom: 8px;
+            line-height: 1.5;
+        }
+
+        .bulk-add-panel .bulk-add-label code {
+            background: var(--paper-card);
+            border: 1px solid var(--rule);
+            padding: 1px 5px;
+            border-radius: 2px;
+        }
+
+        .bulk-add-textarea {
+            width: 100%;
+            min-height: 140px;
+            padding: 12px 14px;
+            border: 1px solid var(--rule);
+            border-radius: 2px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 13px;
+            resize: vertical;
+            background: var(--paper-card);
+            color: var(--ink);
+        }
+
+        .bulk-add-textarea:focus {
+            outline: none;
+            border-color: var(--cut);
+            box-shadow: 0 0 0 3px rgba(181,67,42,0.12);
+        }
+
+        .bulk-add-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 12px;
+            flex-wrap: wrap;
+        }
+
         /* ---------- status / progress ---------- */
         .status-container {
             margin-top: 20px;
@@ -884,6 +940,11 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
                 padding: 32px 24px;
                 margin: 16px;
             }
+
+            .bulk-add-actions .btn {
+                width: 100%;
+                justify-content: center;
+            }
         }
 
         @media (min-width: 769px) and (max-width: 1024px) {
@@ -984,10 +1045,25 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
 
                 <div class="toolbar">
                     <button class="btn btn-primary" id="addRangeBtn">Add New Range</button>
+                    <button class="btn btn-secondary" id="bulkAddBtn">📋 Bulk Add (Paste List)</button>
                     <button class="btn btn-secondary btn-sm" id="exampleBtn">Use Example Marks</button>
                     <span style="font-size:12px; color:#a9a08a; align-self:center; margin-left:auto; font-family:'IBM Plex Mono',monospace;">
                         ⌘ + Enter
                     </span>
+                </div>
+
+                <div class="bulk-add-panel" id="bulkAddPanel">
+                    <div class="bulk-add-label">
+                        One entry per line. Separate the <strong>name</strong> and the <strong>page range</strong> with a
+                        <code>Tab</code>, a <code>:</code>, or a <code>|</code> — e.g.<br>
+                        <code>chapter1&nbsp;&nbsp;&nbsp;24-27,90-98</code> &nbsp;or&nbsp; <code>chapter1: 24-27,90-98</code><br>
+                        You can also paste two columns straight out of Excel/Google Sheets (name column, then range column).
+                    </div>
+                    <textarea class="bulk-add-textarea" id="bulkAddTextarea" placeholder="chapter1&#9;24-27,90-98&#10;chapter2&#9;28-30,98-100&#10;chapter3&#9;31-33,100-105"></textarea>
+                    <div class="bulk-add-actions">
+                        <button class="btn btn-gold btn-sm" id="bulkAddParseBtn">Parse &amp; Add Rows</button>
+                        <button class="btn btn-secondary btn-sm" id="bulkAddCancelBtn">Cancel</button>
+                    </div>
                 </div>
 
                 <div class="table-wrapper">
@@ -1080,7 +1156,12 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             loaderTitle: document.getElementById('loaderTitle'),
             loaderDesc: document.getElementById('loaderDesc'),
             loaderProgressFill: document.getElementById('loaderProgressFill'),
-            loaderStatus: document.getElementById('loaderStatus')
+            loaderStatus: document.getElementById('loaderStatus'),
+            bulkAddBtn: document.getElementById('bulkAddBtn'),
+            bulkAddPanel: document.getElementById('bulkAddPanel'),
+            bulkAddTextarea: document.getElementById('bulkAddTextarea'),
+            bulkAddParseBtn: document.getElementById('bulkAddParseBtn'),
+            bulkAddCancelBtn: document.getElementById('bulkAddCancelBtn')
         };
 
         function formatFileSize(bytes) {
@@ -1231,6 +1312,91 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             }
             
             return parsed.length > 0 ? parsed : null;
+        }
+
+        // ---------- Bulk Add: parse pasted "name <sep> range" lines ----------
+        function splitNameAndRange(line) {
+            // Prefer a real tab (spreadsheet paste), then ':' , then '|'
+            let sep = null;
+            if (line.includes('\t')) {
+                sep = '\t';
+            } else if (line.includes(':')) {
+                sep = ':';
+            } else if (line.includes('|')) {
+                sep = '|';
+            }
+            if (!sep) return null;
+
+            const idx = line.indexOf(sep);
+            const name = line.slice(0, idx).trim();
+            const rangeStr = line.slice(idx + 1).trim();
+            if (!name || !rangeStr) return null;
+            return { name, rangeStr };
+        }
+
+        function parseBulkAddText(text) {
+            const lines = text.split(/\r?\n/);
+            const validEntries = [];
+            const badLines = [];
+
+            for (const rawLine of lines) {
+                const line = rawLine.trim();
+                if (!line) continue;
+
+                const split = splitNameAndRange(line);
+                if (!split) {
+                    badLines.push(rawLine);
+                    continue;
+                }
+
+                const parsed = parseRanges(split.rangeStr);
+                if (!parsed) {
+                    badLines.push(rawLine);
+                    continue;
+                }
+
+                validEntries.push({ name: split.name, rangeStr: split.rangeStr });
+            }
+
+            return { validEntries, badLines };
+        }
+
+        function showBulkAddPanel() {
+            elements.bulkAddPanel.classList.add('show');
+            elements.bulkAddTextarea.focus();
+        }
+
+        function hideBulkAddPanel() {
+            elements.bulkAddPanel.classList.remove('show');
+        }
+
+        function runBulkAdd() {
+            const text = elements.bulkAddTextarea.value;
+            if (!text.trim()) {
+                showStatus('Paste some lines into the bulk add box first.', 'error');
+                return;
+            }
+
+            const { validEntries, badLines } = parseBulkAddText(text);
+
+            if (validEntries.length === 0) {
+                showStatus('❌ Could not parse any lines. Use "name<TAB>range", "name: range" or "name | range" per line.', 'error');
+                return;
+            }
+
+            for (const entry of validEntries) {
+                addRangeRow(entry.name, entry.rangeStr);
+            }
+
+            elements.bulkAddTextarea.value = '';
+            hideBulkAddPanel();
+            hideExport();
+
+            if (badLines.length > 0) {
+                showStatus('✅ Added ' + validEntries.length + ' rows. ⚠️ Skipped ' + badLines.length + ' line(s) that could not be parsed.', 'info');
+            } else {
+                showStatus('✅ Added ' + validEntries.length + ' rows from your pasted list.', 'success');
+            }
         }
 
         function handleFile(file) {
@@ -1415,6 +1581,19 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         elements.processBtn.addEventListener('click', processPDF);
         elements.downloadAllBtn.addEventListener('click', processPDF);
         elements.resetBtn.addEventListener('click', resetAll);
+
+        elements.bulkAddBtn.addEventListener('click', () => {
+            if (elements.bulkAddPanel.classList.contains('show')) {
+                hideBulkAddPanel();
+            } else {
+                showBulkAddPanel();
+            }
+        });
+        elements.bulkAddParseBtn.addEventListener('click', runBulkAdd);
+        elements.bulkAddCancelBtn.addEventListener('click', () => {
+            elements.bulkAddTextarea.value = '';
+            hideBulkAddPanel();
+        });
         
         elements.exampleBtn.addEventListener('click', () => {
             if (state.ranges.length > 0) {
